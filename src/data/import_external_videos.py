@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple
 
 import cv2
+import yaml
 
 from src.data.label_data import RAW_DIR, MANIFEST_PATH, save_raw_labeled_sample
 
@@ -14,10 +15,12 @@ if TYPE_CHECKING:
     from src.utils.hand_detector import HandDetector
 
 
-import yaml
-
-with open("configs/data.yaml") as f:
+with open("configs/data.yaml", encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
+
+DATA_CFG = cfg["data"]
+RECORD_CFG = cfg["record"]
+IMPORT_CFG = cfg["import"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,68 +30,66 @@ def parse_args() -> argparse.Namespace:
             "This produces the same raw format as webcam collection, so you can reuse raw_to_interim.py."
         )
     )
+
     p.add_argument(
         "--input",
         type=Path,
-        default=Path(cfg["data"]["external_data_dir"]),
-        help="Video file or directory containing videos. Default: data/external",
+        default=Path(DATA_CFG["external_data_dir"]),
     )
+
     p.add_argument(
         "--glob",
         type=str,
-        default="*.mp4",
-        help="When --input is a directory, match videos using this glob. Default: *.mp4",
+        default=IMPORT_CFG["video_glob"],
     )
+
     p.add_argument(
         "--label",
         type=str,
         default=None,
-        help="Label to apply to all imported videos. If omitted, use --label-from-parent or --labels-json.",
     )
+
     p.add_argument(
         "--label-from-parent",
         action="store_true",
-        help="Infer label from the immediate parent folder name of each video.",
     )
+
     p.add_argument(
         "--labels-json",
         type=Path,
         default=None,
-        help=(
-            "Optional JSON mapping for labels. Keys can be filename (e.g. clip1.mp4) or "
-            "relative path from --input. Values are label strings."
-        ),
     )
+
     p.add_argument(
         "--record-fps",
         type=float,
-        default=cfg["record"]["record_fps"],
-        help=f"Sample frames at this FPS from the video. Default: {cfg['record']['record_fps']}",
+        default=float(RECORD_CFG["record_fps"]),
     )
+
     p.add_argument(
         "--max-seconds",
         type=float,
-        default=0.0,
-        help="Optional cap per video in seconds (0 = no cap).",
+        default=float(IMPORT_CFG["default_max_seconds"]),
     )
+
     p.add_argument(
         "--num-hands",
         type=int,
-        default=2,
+        default=int(IMPORT_CFG["default_num_hands"]),
         choices=[1, 2],
-        help="Maximum hands for MediaPipe to detect. Default: 2",
     )
+
     p.add_argument(
         "--model-path",
         type=str,
-        default="models/trained/hand_landmarker.task",
-        help="Path to MediaPipe hand landmarker .task file.",
+        default=IMPORT_CFG["default_model_path"],
     )
+
     p.add_argument(
         "--dry-run",
         action="store_true",
-        help="Only print what would be imported; do not write data/raw outputs.",
     )
+
     return p.parse_args()
 
 
@@ -105,10 +106,13 @@ def load_labels_map(path: Optional[Path]) -> Dict[str, str]:
         return {}
     if not path.exists():
         raise FileNotFoundError(f"labels-json not found: {path}")
+
     with path.open("r", encoding="utf-8") as f:
         obj = json.load(f)
+
     if not isinstance(obj, dict):
         raise ValueError("--labels-json must be a JSON object mapping path->label")
+
     out: Dict[str, str] = {}
     for k, v in obj.items():
         out[str(k)] = str(v)
@@ -152,17 +156,20 @@ def resolve_label(
 def iter_sampled_frames(
     cap: cv2.VideoCapture, record_fps: float, max_seconds: float
 ) -> Iterable[Tuple[int, float, "cv2.MatLike"]]:
+
     src_fps = cap.get(cv2.CAP_PROP_FPS)
     if not src_fps or src_fps <= 1e-6:
         src_fps = 30.0
 
     stride = max(int(round(src_fps / max(record_fps, 1e-6))), 1)
+
     max_frames = 0
     if max_seconds and max_seconds > 0:
         max_frames = int(max_seconds * record_fps)
 
     frame_idx = 0
     kept = 0
+
     while True:
         ok, frame = cap.read()
         if not ok or frame is None:
@@ -171,6 +178,7 @@ def iter_sampled_frames(
         if frame_idx % stride == 0:
             ts_s = kept / max(record_fps, 1e-6)
             yield kept, ts_s, frame
+
             kept += 1
             if max_frames and kept >= max_frames:
                 break
@@ -185,34 +193,44 @@ def process_video(
     record_fps: float,
     max_seconds: float,
 ) -> List[List[Dict]]:
+
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open video: {video_path}")
 
     try:
         sequence: List[List[Dict]] = []
-        # Use VIDEO mode timestamps; keep them strictly increasing.
+
         base_ms = int(time.time() * 1000)
+
         for kept_idx, ts_s, frame in iter_sampled_frames(cap, record_fps, max_seconds):
             timestamp_ms = base_ms + int(ts_s * 1000.0)
+
             result = detector.detect(frame, timestamp_ms=timestamp_ms)
             hands = detector.get_hands_data(result, frame.shape)
+
             sequence.append(hands)
 
         if len(sequence) == 0:
             raise RuntimeError(f"No frames sampled from: {video_path}")
+
         return sequence
+
     finally:
         cap.release()
 
 
 def main() -> None:
+
     args = parse_args()
+
     videos = discover_videos(args.input, args.glob)
+
     if not videos:
         raise FileNotFoundError(f"No videos found in: {args.input} (glob={args.glob})")
 
     labels_map = load_labels_map(args.labels_json)
+
     from src.utils.hand_detector import HandDetector
 
     detector = HandDetector(model_path=args.model_path, num_hands=args.num_hands)
@@ -224,8 +242,11 @@ def main() -> None:
     skipped = 0
 
     try:
+
         for vp in videos:
+
             try:
+
                 label = resolve_label(
                     video_path=vp,
                     input_root=args.input,
@@ -235,6 +256,7 @@ def main() -> None:
                 )
 
                 print(f"[IMPORT] {vp} -> label='{label}'")
+
                 if args.dry_run:
                     skipped += 1
                     continue
@@ -246,14 +268,21 @@ def main() -> None:
                     record_fps=float(args.record_fps),
                     max_seconds=float(args.max_seconds),
                 )
+
                 out_path = save_raw_labeled_sample(data=seq, label=label)
+
                 imported += 1
+
                 print(f"  saved: {out_path} (frames={len(seq)})")
+
             except Exception as exc:
+
                 skipped += 1
+
                 print(f"[SKIP] {vp}: {exc}")
 
     finally:
+
         detector.close()
 
     print(f"Done. imported={imported} skipped={skipped} raw_dir={RAW_DIR}")
@@ -261,4 +290,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

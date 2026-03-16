@@ -5,23 +5,40 @@ import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+import yaml
+
+
+with open("configs/utils.yaml", encoding="utf-8") as f:
+    cfg = yaml.safe_load(f)
+
+HD_CFG = cfg["hand_detector"]
 
 
 class HandDetector:
     def __init__(
         self,
-        model_path="models/trained/hand_landmarker.task",
-        num_hands=2,
-        min_hand_detection_confidence=0.5,
-        min_hand_presence_confidence=0.5,
-        min_tracking_confidence=0.5,
+        model_path: str | None = None,
+        num_hands: int | None = None,
+        min_hand_detection_confidence: float | None = None,
+        min_hand_presence_confidence: float | None = None,
+        min_tracking_confidence: float | None = None,
     ):
+
+        model_path = model_path or HD_CFG["model_path"]
+        num_hands = num_hands or HD_CFG["num_hands"]
+        min_hand_detection_confidence = (
+            min_hand_detection_confidence or HD_CFG["min_hand_detection_confidence"]
+        )
+        min_hand_presence_confidence = (
+            min_hand_presence_confidence or HD_CFG["min_hand_presence_confidence"]
+        )
+        min_tracking_confidence = (
+            min_tracking_confidence or HD_CFG["min_tracking_confidence"]
+        )
+
         model_file = Path(model_path)
         if not model_file.exists():
-            raise FileNotFoundError(
-                f"Không tìm thấy model: {model_file}\n"
-                f"Hãy tải file hand_landmarker.task và đặt vào đúng đường dẫn này."
-            )
+            raise FileNotFoundError(f"Missing model: {model_file}")
 
         base_options = python.BaseOptions(model_asset_path=str(model_file))
         options = vision.HandLandmarkerOptions(
@@ -37,10 +54,6 @@ class HandDetector:
         self.last_result = None
 
     def detect(self, frame, timestamp_ms=None):
-        """
-        frame: OpenCV BGR image
-        timestamp_ms: int, bắt buộc cho VIDEO mode
-        """
         if timestamp_ms is None:
             timestamp_ms = int(time.time() * 1000)
 
@@ -51,26 +64,35 @@ class HandDetector:
         self.last_result = result
         return result
 
-    def _get_hand_label_and_score(self, result, hand_idx):
-        label = None
-        score = None
+    def get_hands_data(self, result, frame_shape):
+        hands_data = []
+        if result is None or not result.hand_landmarks:
+            return hands_data
 
-        if result.handedness and hand_idx < len(result.handedness):
-            label = result.handedness[hand_idx][0].category_name
-            score = result.handedness[hand_idx][0].score
-
-        return label, score
-
-    def _extract_hand_points(self, hand_landmarks, frame_shape):
         h, w, _ = frame_shape
-        points = []
 
-        for lm in hand_landmarks:
-            x = int(lm.x * w)
-            y = int(lm.y * h)
-            points.append([x, y])
+        for i, hand_landmarks in enumerate(result.hand_landmarks):
+            points = [[int(lm.x * w), int(lm.y * h)] for lm in hand_landmarks]
 
-        return points
+            label = None
+            score = None
+
+            if result.handedness and i < len(result.handedness):
+                label = result.handedness[i][0].category_name
+                score = result.handedness[i][0].score
+
+            hands_data.append(
+                {
+                    "label": label,
+                    "score": score,
+                    "landmarks": points,
+                }
+            )
+
+        label_order = {"Left": 0, "Right": 1, None: 2}
+        hands_data.sort(key=lambda hand: label_order.get(hand["label"], 2))
+
+        return hands_data
 
     def draw_hands(self, frame, result):
         """
@@ -117,42 +139,6 @@ class HandDetector:
             )
 
         return frame
-
-    def get_hands_data(self, result, frame_shape):
-        """
-        Trả về:
-        [
-          {
-            "label": "Left" | "Right" | None,
-            "score": float | None,
-            "landmarks": [[x1, y1], ..., [x21, y21]]
-          },
-          ...
-        ]
-        """
-        hands_data = []
-
-        if result is None or not result.hand_landmarks:
-            return hands_data
-
-        for i, hand_landmarks in enumerate(result.hand_landmarks):
-            points = self._extract_hand_points(hand_landmarks, frame_shape)
-            label, score = self._get_hand_label_and_score(result, i)
-
-            hands_data.append(
-                {
-                    "label": label,
-                    "score": score,
-                    "landmarks": points,
-                }
-            )
-
-        # Giữ thứ tự ổn định giữa các frame
-        # Left trước, Right sau, Unknown cuối
-        label_order = {"Left": 0, "Right": 1, None: 2}
-        hands_data.sort(key=lambda hand: label_order.get(hand["label"], 2))
-
-        return hands_data
 
     def close(self):
         self.landmarker.close()

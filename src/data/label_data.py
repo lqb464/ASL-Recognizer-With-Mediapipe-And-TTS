@@ -3,15 +3,22 @@ import time
 from pathlib import Path
 
 import cv2
-
 import yaml
 
-with open("configs/data.yaml") as f:
+
+with open("configs/data.yaml", encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 
-RAW_DIR = Path(cfg["data"]["raw_data_dir"])
-MANIFEST_PATH = RAW_DIR / "manifest.jsonl"
-SILENCE_LABEL = cfg["label"]["silence"]
+with open("configs/utils.yaml", encoding="utf-8") as f:
+    label_cfg = yaml.safe_load(f)
+
+DATA_CFG = cfg["data"]
+LABEL_CFG = cfg["label"]
+
+RAW_DIR = Path(DATA_CFG["raw_data_dir"])
+MANIFEST_PATH = RAW_DIR / DATA_CFG["raw_manifest"]
+
+SILENCE_LABEL = LABEL_CFG["silence_label"]
 
 
 def init_labeler():
@@ -96,11 +103,9 @@ def ask_label(preview_frame, num_frames: int | None, window_name="Hand Detection
         canvas = preview_frame.copy()
         h, w = canvas.shape[:2]
 
-        # Làm nền dịu hơn để box nổi bật
         blurred = cv2.GaussianBlur(canvas, (15, 15), 0)
         canvas = cv2.addWeighted(canvas, 0.35, blurred, 0.65, 0)
 
-        # Kích thước box responsive
         box_w = int(w * 0.78)
         box_h = int(h * 0.62)
 
@@ -109,19 +114,16 @@ def ask_label(preview_frame, num_frames: int | None, window_name="Hand Detection
         x2 = x1 + box_w
         y2 = y1 + box_h
 
-        # Overlay xám đậm
         overlay = canvas.copy()
         cv2.rectangle(overlay, (x1, y1), (x2, y2), (32, 32, 32), -1)
         cv2.addWeighted(overlay, 0.88, canvas, 0.12, 0, canvas)
 
-        # Viền box
         cv2.rectangle(canvas, (x1, y1), (x2, y2), (110, 110, 110), 1)
 
         pad_x = 28
         current_y = y1 + 42
         max_text_width = box_w - pad_x * 2
 
-        # Title
         _draw_text(
             canvas,
             "ASL LABELING",
@@ -131,10 +133,10 @@ def ask_label(preview_frame, num_frames: int | None, window_name="Hand Detection
             thickness=2,
         )
 
-        # Frame count ở góc phải
         frame_text = f"Frames: {num_frames}"
         frame_scale = 0.62
         frame_w, _, _ = _get_text_size(frame_text, font_scale=frame_scale, thickness=1)
+
         _draw_text(
             canvas,
             frame_text,
@@ -144,11 +146,9 @@ def ask_label(preview_frame, num_frames: int | None, window_name="Hand Detection
             thickness=1,
         )
 
-        # Divider
         divider_y = current_y + 18
         cv2.line(canvas, (x1 + pad_x, divider_y), (x2 - pad_x, divider_y), (90, 90, 90), 1)
 
-        # Nội dung hướng dẫn
         help_lines = [
             "Enter: luu sample (de trong = SILENCE)",
             "skip: bo qua sample nay",
@@ -170,7 +170,6 @@ def ask_label(preview_frame, num_frames: int | None, window_name="Hand Detection
             _, text_h, _ = _get_text_size(line, font_scale=scale, thickness=1)
             current_y += text_h + 18
 
-        # Label Input
         current_y += 8
         _draw_text(
             canvas,
@@ -189,11 +188,16 @@ def ask_label(preview_frame, num_frames: int | None, window_name="Hand Detection
         cv2.rectangle(canvas, (input_box_x1, input_box_y1), (input_box_x2, input_box_y2), (70, 70, 70), -1)
         cv2.rectangle(canvas, (input_box_x1, input_box_y1), (input_box_x2, input_box_y2), (120, 120, 120), 1)
 
-        # Caret nhấp nháy
         blink = (int(time.time() * 2) % 2) == 0
         display_text = typed + ("|" if blink else "")
 
-        text_scale = _fit_text_scale(display_text if display_text else " ", input_box_x2 - input_box_x1 - 20, start_scale=0.7, min_scale=0.45, thickness=1)
+        text_scale = _fit_text_scale(
+            display_text if display_text else " ",
+            input_box_x2 - input_box_x1 - 20,
+            start_scale=0.7,
+            min_scale=0.45,
+            thickness=1,
+        )
 
         _draw_text(
             canvas,
@@ -210,7 +214,6 @@ def ask_label(preview_frame, num_frames: int | None, window_name="Hand Detection
         if key == 13:
             value = typed.strip()
             if not value:
-                # Mặc định coi chuỗi rỗng là khoảng im lặng / không ký hiệu.
                 return SILENCE_LABEL
             return value
 

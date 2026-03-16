@@ -6,21 +6,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
-
 import yaml
 
-with open("configs/data.yaml") as f:
+
+with open("configs/data.yaml", encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 
-DEFAULT_INPUT = cfg["data"]["internal_data_dir"]  # Path("data/interim")
-DEFAULT_OUTPUT = Path(cfg["data"]["processed_data_dir"]) / "train.npz"
-DEFAULT_FEATURES = [
-    "coords_norm_flat",
-    "joint_angles",
-    "tip_distances",
-    "handedness_onehot",
-    "present",
-]
+DATA_CFG = cfg["data"]
+PROCESSING_CFG = cfg["processing"]
+
+DEFAULT_INPUT = Path(DATA_CFG["interim_data_dir"])
+DEFAULT_OUTPUT = Path(DATA_CFG["processed_data_dir"]) / PROCESSING_CFG["default_output_name"]
+DEFAULT_FEATURES = list(PROCESSING_CFG["default_features"])
 
 FEATURE_SIZES = {
     "coords_norm_flat": 42,
@@ -40,34 +37,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         default=str(DEFAULT_INPUT),
-        help="Interim JSON directory or a single JSON file. Default: data/interim",
+        help=f"Interim JSON directory or a single JSON file. Default: {DEFAULT_INPUT}",
     )
     parser.add_argument(
         "--output",
         default=str(DEFAULT_OUTPUT),
-        help="Single output dataset file. Default: data/processed/train.npz",
+        help=f"Single output dataset file. Default: {DEFAULT_OUTPUT}",
     )
     parser.add_argument(
         "--format",
-        default="npz",
+        default=PROCESSING_CFG["default_output_format"],
         choices=["npz", "pt"],
-        help="Output format. Default: npz",
+        help=f"Output format. Default: {PROCESSING_CFG['default_output_format']}",
     )
     parser.add_argument(
         "--seq-len",
         type=int,
-        default=0,
+        default=int(PROCESSING_CFG["default_seq_len"]),
         help=(
             "Fixed sequence length. Use 0 to auto-detect from the longest sample in input. "
-            "Default: 0"
+            f"Default: {PROCESSING_CFG['default_seq_len']}"
         ),
     )
     parser.add_argument(
         "--max-hands",
         type=int,
-        default=1,
+        default=int(PROCESSING_CFG["default_max_hands"]),
         choices=[1, 2],
-        help="Maximum hands per frame to keep. Default: 1",
+        help=f"Maximum hands per frame to keep. Default: {PROCESSING_CFG['default_max_hands']}",
     )
     parser.add_argument(
         "--features",
@@ -80,9 +77,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--pad-mode",
-        default="zero",
+        default=PROCESSING_CFG["default_pad_mode"],
         choices=["zero", "repeat_last", "loop"],
-        help="Padding mode for shorter sequences. Default: zero",
+        help=f"Padding mode for shorter sequences. Default: {PROCESSING_CFG['default_pad_mode']}",
     )
     parser.add_argument(
         "--metadata",

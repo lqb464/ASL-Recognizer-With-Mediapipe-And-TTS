@@ -12,9 +12,12 @@ import yaml
 with open("configs/data.yaml", encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 
-
+DATA_CFG = cfg["data"]
 LANDMARKS_CFG = cfg["landmarks"]
 LABEL_CFG = cfg["label"]
+
+DEFAULT_INPUT = Path(DATA_CFG["raw_data_dir"])
+DEFAULT_OUTPUT = Path(DATA_CFG["interim_data_dir"])
 
 WRIST = int(LANDMARKS_CFG["wrist"])
 INDEX_MCP = int(LANDMARKS_CFG["index_mcp"])
@@ -45,10 +48,6 @@ def _distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
 
 
 def _safe_scale(points: List[Tuple[float, float]]) -> float:
-    """
-    Use wrist -> middle MCP as the main hand scale.
-    Fallback to palm width or bounding-box diagonal if needed.
-    """
     wrist = points[WRIST]
     middle_mcp = points[MIDDLE_MCP]
     scale = _distance(wrist, middle_mcp)
@@ -228,20 +227,20 @@ def main() -> None:
     parser.add_argument(
         "--input",
         type=Path,
-        default=Path("data/raw"),
-        help="Input JSON file or folder. Default: data/raw",
+        default=DEFAULT_INPUT,
+        help=f"Input JSON file or folder. Default: {DEFAULT_INPUT}",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/interim"),
-        help="Output JSON file or folder. Default: data/interim",
+        default=DEFAULT_OUTPUT,
+        help=f"Output JSON file or folder. Default: {DEFAULT_OUTPUT}",
     )
     parser.add_argument(
         "--score-threshold",
         type=float,
-        default=float(cfg["label"]["threshold_score"]),
-        help=f"Drop hands whose detector score is below this value. Default: {cfg['label']['threshold_score']}",
+        default=float(LABEL_CFG["threshold_score"]),
+        help=f"Drop hands whose detector score is below this value. Default: {LABEL_CFG['threshold_score']}",
     )
     args = parser.parse_args()
 

@@ -1,47 +1,23 @@
 from __future__ import annotations
 
-import argparse
 import time
 from pathlib import Path
 
 import cv2
+import yaml
 
-from .test_predict import (
-    StreamingPredictor,
-    build_inference_objects,
-)
+from .test_predict import StreamingPredictor, build_inference_objects
 from src.utils.overlay import draw_overlay
 from src.utils.tts_worker import TTSWorker
 from src.utils.webcam import Webcam
 
 
-DEFAULT_MODEL_PATH = Path("models/checkpoints/asl_gru_best.pt")
-DEFAULT_DATA_META = Path("data/processed/train_meta.json")
-
-
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Live ASL inference demo")
-
-    p.add_argument("--model", type=Path, default=DEFAULT_MODEL_PATH)
-    p.add_argument("--meta", type=Path, default=DEFAULT_DATA_META)
-    p.add_argument("--camera-index", type=int, default=0)
-    p.add_argument("--record-fps", type=float, default=15.0)
-    p.add_argument("--min-history", type=float, default=1.0)
-    p.add_argument("--smooth", type=int, default=5)
-    p.add_argument(
-        "--silent-when-no-hands",
-        action="store_true",
-        help="Hide prediction when no hands are detected",
-    )
-
-    return p.parse_args()
+with open("configs/inference.yaml", encoding="utf-8") as f:
+    INFER_CFG = yaml.safe_load(f)["infer"]
 
 
 def compute_hand_motion(prev_hands, curr_hands) -> float:
-    """
-    Estimate average landmark motion between two consecutive frames.
-    Returns 0.0 if motion cannot be computed.
-    """
+
     if not prev_hands or not curr_hands:
         return 0.0
 
@@ -74,21 +50,15 @@ def compute_hand_motion(prev_hands, curr_hands) -> float:
 
 
 def main() -> None:
-    args = parse_args()
-
-    if not args.model.exists():
-        raise FileNotFoundError(f"Model checkpoint not found: {args.model}")
-    if not args.meta.exists():
-        raise FileNotFoundError(f"Metadata file not found: {args.meta}")
 
     model, feature_builder, seq_len, pad_mode, id_to_label = build_inference_objects(
-        model_path=args.model,
-        meta_path=args.meta,
+        model_path=Path(INFER_CFG["model_path"]),
+        meta_path=Path(INFER_CFG["meta_path"]),
     )
 
     from src.utils.hand_detector import HandDetector
 
-    cam = Webcam(camera_index=args.camera_index)
+    cam = Webcam(camera_index=INFER_CFG["camera_index"])
     detector = HandDetector()
 
     predictor = StreamingPredictor(
@@ -97,10 +67,10 @@ def main() -> None:
         seq_len=seq_len,
         pad_mode=pad_mode,
         id_to_label=id_to_label,
-        record_fps=args.record_fps,
-        min_history=args.min_history,
-        smooth=args.smooth,
-        silent_when_no_hands=args.silent_when_no_hands,
+        record_fps=INFER_CFG["record_fps"],
+        min_history=INFER_CFG["min_history"],
+        smooth=INFER_CFG["smooth"],
+        silent_when_no_hands=INFER_CFG["silent_when_no_hands"],
     )
 
     tts_worker = TTSWorker()
@@ -111,12 +81,12 @@ def main() -> None:
     display_fps = 0.0
 
     silence_run = 0
-    reset_after_silence_frames = 6
+    reset_after_silence_frames = INFER_CFG["reset_after_silence_frames"]
 
     prev_hands = None
     still_run = 0
-    stillness_threshold = 0.01
-    reset_after_still_frames = 6
+    stillness_threshold = INFER_CFG["stillness_threshold"]
+    reset_after_still_frames = INFER_CFG["reset_after_still_frames"]
 
     pred_label = ""
 
@@ -125,6 +95,7 @@ def main() -> None:
 
     try:
         while True:
+
             frame = cam.read()
             if frame is None:
                 print("Cannot receive frame from webcam")
@@ -132,10 +103,11 @@ def main() -> None:
 
             now = time.time()
             loop_dt = now - prev_loop_time
+
             if loop_dt > 0:
                 display_fps = 1.0 / loop_dt
-            prev_loop_time = now
 
+            prev_loop_time = now
             timestamp_ms = int((now - logical_start) * 1000)
 
             result = detector.detect(frame, timestamp_ms=timestamp_ms)
@@ -195,6 +167,7 @@ def main() -> None:
                 break
 
     finally:
+
         tts_worker.stop()
         detector.close()
         cam.release()

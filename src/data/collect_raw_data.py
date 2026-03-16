@@ -15,10 +15,13 @@ from ..utils.webcam import Webcam
 
 
 with open("configs/data.yaml", encoding="utf-8") as f:
-    cfg = yaml.safe_load(f)
+    data_cfg = yaml.safe_load(f)
 
-CAMERA_CFG = cfg["camera"]
-RECORD_CFG = cfg["record"]
+with open("configs/utils.yaml", encoding="utf-8") as f:
+    utils_cfg = yaml.safe_load(f)
+
+CAMERA_CFG = utils_cfg["webcam"]
+RECORD_CFG = data_cfg["record"]
 
 CAMERA_INDEX = int(CAMERA_CFG["index"])
 CAMERA_WIDTH = int(CAMERA_CFG["width"])

@@ -1,12 +1,13 @@
 data:
   external_data_dir: "data/external"
   raw_data_dir: "data/raw"
-  internal_data_dir: "data/internal"
+  interim_data_dir: "data/interim"
   processed_data_dir: "data/processed"
   output_data_dir: "data/output"
+  raw_manifest: "manifest.jsonl"
 
 label:
-  silence: "SILENCE"
+  silence_label: "SILENCE"
   threshold_score: 0.8
   eps: 1e-8
 
@@ -15,11 +16,24 @@ record:
   record_seconds: 2.0
   record_fps: 24
 
-camera:
-  index: 0
-  width: 1280
-  height: 720
-  fps: 30
+import:
+  video_glob: "*.mp4"
+  default_num_hands: 2
+  default_model_path: "models/trained/hand_landmarker.task"
+  default_max_seconds: 0.0
+
+processing:
+  default_output_name: "train.npz"
+  default_output_format: "npz"
+  default_seq_len: 0
+  default_max_hands: 1
+  default_pad_mode: "zero"
+  default_features:
+    - coords_norm_flat
+    - joint_angles
+    - tip_distances
+    - handedness_onehot
+    - present
 
 landmarks:
   num_landmarks: 21

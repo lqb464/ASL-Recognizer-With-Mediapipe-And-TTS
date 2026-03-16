@@ -1,0 +1,8 @@
+{
+  "best_val_acc": 0.9565217391304348,
+  "model_path": "models/checkpoints/asl_best.pt",
+  "num_classes": 4,
+  "input_dim": 63,
+  "train_samples": 93,
+  "val_samples": 23
+}

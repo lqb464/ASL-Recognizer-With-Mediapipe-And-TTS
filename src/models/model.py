@@ -9,18 +9,23 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence
+import yaml
+
+
+with open("configs/model.yaml", encoding="utf-8") as f:
+    model_cfg = yaml.safe_load(f)["model"]
 
 
 @dataclass(frozen=True)
 class SequenceRNNConfig:
     input_dim: int
     num_classes: int
-    model_type: str = "gru"   # "gru" or "lstm"
-    hidden_dim: int = 128
-    num_layers: int = 1
-    dropout: float = 0.1
-    bidirectional: bool = False
-    seed: int = 42
+    model_type: str = model_cfg["type"]
+    hidden_dim: int = model_cfg["hidden_dim"]
+    num_layers: int = model_cfg["num_layers"]
+    dropout: float = model_cfg["dropout"]
+    bidirectional: bool = model_cfg["bidirectional"]
+    seed: int = model_cfg["seed"]
 
 
 def accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -30,16 +35,6 @@ def accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 class SequenceRNNClassifier(nn.Module):
-    """
-    Temporal sequence classifier for ASL landmarks.
-
-    Input:
-        X: (N, T, F)
-        mask: (N, T) with 1=valid, 0=pad
-
-    Model:
-        sequence -> GRU/LSTM -> last valid hidden state -> linear
-    """
 
     def __init__(self, config: SequenceRNNConfig):
         super().__init__()
@@ -67,12 +62,7 @@ class SequenceRNNClassifier(nn.Module):
         self.fc = nn.Linear(out_dim, config.num_classes)
 
     def forward_torch(self, X: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        """
-        Torch forward for training.
-        X: (N, T, F)
-        mask: (N, T)
-        returns: logits (N, C)
-        """
+
         if X.ndim != 3:
             raise ValueError(f"X must have shape (N,T,F), got {tuple(X.shape)}")
         if mask.ndim != 2:
@@ -91,12 +81,10 @@ class SequenceRNNClassifier(nn.Module):
 
         _, hidden = self.rnn(packed)
 
-        # LSTM returns (h_n, c_n)
         if isinstance(hidden, tuple):
             hidden = hidden[0]
 
         if self.config.bidirectional:
-            # last layer forward + backward
             last_hidden = torch.cat([hidden[-2], hidden[-1]], dim=1)
         else:
             last_hidden = hidden[-1]
@@ -106,10 +94,7 @@ class SequenceRNNClassifier(nn.Module):
         return logits
 
     def forward(self, X: np.ndarray, mask: np.ndarray) -> np.ndarray:
-        """
-        Numpy friendly forward for inference compatibility.
-        Returns logits as numpy array.
-        """
+
         device = next(self.parameters()).device
         X_t = torch.as_tensor(X, dtype=torch.float32, device=device)
         mask_t = torch.as_tensor(mask, dtype=torch.float32, device=device)
@@ -155,12 +140,12 @@ class SequenceRNNClassifier(nn.Module):
         config = SequenceRNNConfig(
             input_dim=int(cfg["input_dim"]),
             num_classes=int(cfg["num_classes"]),
-            model_type=str(cfg.get("model_type", "gru")),
-            hidden_dim=int(cfg.get("hidden_dim", 128)),
-            num_layers=int(cfg.get("num_layers", 1)),
-            dropout=float(cfg.get("dropout", 0.1)),
-            bidirectional=bool(cfg.get("bidirectional", False)),
-            seed=int(cfg.get("seed", 42)),
+            model_type=str(cfg.get("model_type", model_cfg["type"])),
+            hidden_dim=int(cfg.get("hidden_dim", model_cfg["hidden_dim"])),
+            num_layers=int(cfg.get("num_layers", model_cfg["num_layers"])),
+            dropout=float(cfg.get("dropout", model_cfg["dropout"])),
+            bidirectional=bool(cfg.get("bidirectional", model_cfg["bidirectional"])),
+            seed=int(cfg.get("seed", model_cfg["seed"])),
         )
 
         model = SequenceRNNClassifier(config)

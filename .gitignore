@@ -15,8 +15,11 @@ env/
 ## IDE / OS
 .vscode/
 .idea/
-Thumbs.db
-Desktop.ini
+.DS_Store
 
 ## Project outputs / artifacts
 output/
+artifacts/
+
+## datasets
+data/

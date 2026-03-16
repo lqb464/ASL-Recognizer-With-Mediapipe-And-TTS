@@ -1,6 +1,6 @@
+# src/models/train.py
 from __future__ import annotations
 
-import argparse
 import time
 from pathlib import Path
 from typing import Dict, Tuple
@@ -8,31 +8,13 @@ from typing import Dict, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+import yaml
 
 from src.models.model import SequenceRNNClassifier, SequenceRNNConfig, accuracy, save_json
 
 
-DEFAULT_DATASET = Path("data/processed/train.npz")
-DEFAULT_OUT_DIR = Path("models/checkpoints")
-
-
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Train a temporal RNN classifier on processed ASL dataset.")
-    p.add_argument("--data", default=str(DEFAULT_DATASET), help="Path to processed dataset .npz")
-    p.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help="Output directory for checkpoints")
-    p.add_argument("--model-type", type=str, default="gru", choices=["gru", "lstm"])
-    p.add_argument("--hidden-dim", type=int, default=128)
-    p.add_argument("--num-layers", type=int, default=1)
-    p.add_argument("--dropout", type=float, default=0.1)
-    p.add_argument("--bidirectional", action="store_true")
-    p.add_argument("--epochs", type=int, default=30)
-    p.add_argument("--batch-size", type=int, default=64)
-    p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--weight-decay", type=float, default=1e-4)
-    p.add_argument("--val-split", type=float, default=0.2)
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--device", type=str, default="auto", help="auto, cpu, cuda")
-    return p.parse_args()
+with open("configs/train.yaml", encoding="utf-8") as f:
+    TRAIN_CFG = yaml.safe_load(f)["train"]
 
 
 def resolve_device(device_arg: str) -> torch.device:
@@ -85,11 +67,13 @@ def evaluate(
     device: torch.device,
     batch_size: int = 256,
 ) -> Dict[str, float]:
+
     model.eval()
     preds_all = []
 
     with torch.no_grad():
         for start in range(0, len(y), batch_size):
+
             xb = X[start : start + batch_size]
             mb = masks[start : start + batch_size]
 
@@ -102,34 +86,41 @@ def evaluate(
 
     y_pred = np.concatenate(preds_all, axis=0) if preds_all else np.zeros((0,), dtype=np.int64)
     acc = accuracy(y, y_pred)
+
     return {"acc": acc}
 
 
 def main() -> None:
-    args = parse_args()
-    data_path = Path(args.data)
-    out_dir = Path(args.out_dir)
+
+    data_path = Path(TRAIN_CFG["dataset"])
+    out_dir = Path(TRAIN_CFG["out_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    device = resolve_device(TRAIN_CFG["device"])
+
+    seed = int(TRAIN_CFG["seed"])
+    torch.manual_seed(seed)
+    np.random.seed(seed)
 
     if not data_path.exists():
         raise FileNotFoundError(
             f"Dataset not found: {data_path}. Build it via src/data/interim_to_processed.py"
         )
 
-    device = resolve_device(args.device)
-    print(f"Using device: {device}")
-
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
-
     X, y, lengths, masks, sample_ids = load_npz_dataset(data_path)
+
     n, t, f = X.shape
     num_classes = int(y.max() + 1) if y.size else 0
 
     if num_classes <= 1:
         raise ValueError(f"Need at least 2 classes to train, got {num_classes}")
 
-    train_idx, val_idx = split_indices(n, args.val_split, args.seed)
+    train_idx, val_idx = split_indices(
+        n,
+        float(TRAIN_CFG["val_split"]),
+        seed,
+    )
+
     X_tr, m_tr, y_tr = X[train_idx], masks[train_idx], y[train_idx]
     X_va, m_va, y_va = X[val_idx], masks[val_idx], y[val_idx]
 
@@ -137,28 +128,28 @@ def main() -> None:
         SequenceRNNConfig(
             input_dim=f,
             num_classes=num_classes,
-            model_type=args.model_type,
-            hidden_dim=args.hidden_dim,
-            num_layers=args.num_layers,
-            dropout=args.dropout,
-            bidirectional=args.bidirectional,
-            seed=args.seed,
         )
     ).to(device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=args.lr,
-        weight_decay=args.weight_decay,
+        lr=float(TRAIN_CFG["lr"]),
+        weight_decay=float(TRAIN_CFG["weight_decay"]),
     )
+
     criterion = nn.CrossEntropyLoss()
 
     best_val = -1.0
-    best_path = out_dir / f"asl_{args.model_type}_best.pt"
-    meta_path = out_dir / f"asl_{args.model_type}_best.json"
+    best_path = out_dir / "asl_best.pt"
+    meta_path = out_dir / "asl_best.json"
 
-    for epoch in range(1, args.epochs + 1):
+    epochs = int(TRAIN_CFG["epochs"])
+    batch_size = int(TRAIN_CFG["batch_size"])
+
+    for epoch in range(1, epochs + 1):
+
         t0 = time.time()
+
         model.train()
 
         losses = []
@@ -168,20 +159,26 @@ def main() -> None:
             X_tr,
             m_tr,
             y_tr,
-            args.batch_size,
-            seed=args.seed + epoch,
+            batch_size,
+            seed=seed + epoch,
         ):
+
             xb_t = torch.from_numpy(xb).to(device)
             mb_t = torch.from_numpy(mb).to(device)
             yb_t = torch.from_numpy(yb).to(device)
 
             optimizer.zero_grad()
+
             logits = model.forward_torch(xb_t, mb_t)
+
             loss = criterion(logits, yb_t)
+
             loss.backward()
+
             optimizer.step()
 
             preds = logits.argmax(dim=1).detach().cpu().numpy().astype(np.int64)
+
             acc = accuracy(yb, preds)
 
             losses.append(float(loss.item()))
@@ -189,7 +186,15 @@ def main() -> None:
 
         train_loss = float(np.mean(losses)) if losses else 0.0
         train_acc = float(np.mean(accs)) if accs else 0.0
-        val_metrics = evaluate(model, X_va, m_va, y_va, device=device)
+
+        val_metrics = evaluate(
+            model,
+            X_va,
+            m_va,
+            y_va,
+            device=device,
+        )
+
         dt = time.time() - t0
 
         print(
@@ -198,19 +203,18 @@ def main() -> None:
         )
 
         if val_metrics["acc"] > best_val:
+
             best_val = val_metrics["acc"]
+
             extra = {
                 "dataset": str(data_path.as_posix()),
                 "shapes": {"X": [int(n), int(t), int(f)]},
-                "val_split": float(args.val_split),
-                "seed": int(args.seed),
-                "model_type": str(args.model_type),
-                "hidden_dim": int(args.hidden_dim),
-                "num_layers": int(args.num_layers),
-                "dropout": float(args.dropout),
-                "bidirectional": bool(args.bidirectional),
+                "val_split": float(TRAIN_CFG["val_split"]),
+                "seed": int(seed),
             }
+
             model.save(best_path, extra=extra)
+
             save_json(
                 meta_path,
                 {
@@ -220,18 +224,9 @@ def main() -> None:
                     "input_dim": int(f),
                     "train_samples": int(len(train_idx)),
                     "val_samples": int(len(val_idx)),
-                    "model_type": str(args.model_type),
-                    "hidden_dim": int(args.hidden_dim),
-                    "num_layers": int(args.num_layers),
-                    "dropout": float(args.dropout),
-                    "bidirectional": bool(args.bidirectional),
                 },
             )
 
     print(f"Best val acc: {best_val:.4f}")
     print(f"Saved best checkpoint: {best_path}")
     print(f"Saved metadata: {meta_path}")
-
-
-if __name__ == "__main__":
-    main()

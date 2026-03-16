@@ -6,10 +6,15 @@ from pathlib import Path
 from typing import Deque, Dict, Tuple
 
 import numpy as np
+import yaml
 
 from src.data.raw_to_interim import process_frame
 from src.data.interim_to_processed import FeatureBuilder, sample_to_sequence
 from src.models.model import SequenceRNNClassifier
+
+
+with open("configs/inference.yaml", encoding="utf-8") as f:
+    INFER_CFG = yaml.safe_load(f)["infer"]
 
 
 def load_metadata(path: Path) -> Dict:
@@ -18,11 +23,14 @@ def load_metadata(path: Path) -> Dict:
 
 
 def build_inference_objects(
-    model_path: Path,
-    meta_path: Path,
+    model_path: Path | None = None,
+    meta_path: Path | None = None,
 ) -> Tuple[SequenceRNNClassifier, FeatureBuilder, int, str, Dict[int, str]]:
-    model = SequenceRNNClassifier.load(model_path)
 
+    model_path = model_path or Path(INFER_CFG["model_path"])
+    meta_path = meta_path or Path(INFER_CFG["meta_path"])
+
+    model = SequenceRNNClassifier.load(model_path)
     meta = load_metadata(meta_path)
 
     feature_names = meta["feature_names"]
@@ -56,15 +64,6 @@ def build_empty_interim_frame() -> Dict:
 
 
 class StreamingPredictor:
-    """
-    Continuous streaming predictor for live ASL inference.
-
-    Responsibilities:
-    - maintain a fixed-length frame buffer
-    - convert hand detections to interim frames
-    - run sequence building + model inference
-    - smooth recent predictions
-    """
 
     def __init__(
         self,
@@ -73,20 +72,25 @@ class StreamingPredictor:
         seq_len: int,
         pad_mode: str,
         id_to_label: Dict[int, str],
-        record_fps: float = 15.0,
-        min_history: float = 1.0,
-        smooth: int = 5,
-        silent_when_no_hands: bool = False,
+        record_fps: float | None = None,
+        min_history: float | None = None,
+        smooth: int | None = None,
+        silent_when_no_hands: bool | None = None,
     ) -> None:
+
         self.model = model
         self.feature_builder = feature_builder
         self.seq_len = seq_len
         self.pad_mode = pad_mode
         self.id_to_label = id_to_label
 
-        self.record_fps = float(record_fps)
-        self.min_history = float(min_history)
-        self.silent_when_no_hands = bool(silent_when_no_hands)
+        self.record_fps = float(record_fps or INFER_CFG["record_fps"])
+        self.min_history = float(min_history or INFER_CFG["min_history"])
+        self.silent_when_no_hands = bool(
+            silent_when_no_hands if silent_when_no_hands is not None else INFER_CFG["silent_when_no_hands"]
+        )
+
+        smooth = smooth or INFER_CFG["smooth"]
 
         self.frames_buffer: Deque[Dict] = deque(maxlen=seq_len)
         self.pred_history: Deque[int] = deque(maxlen=max(1, int(smooth)))
@@ -97,10 +101,7 @@ class StreamingPredictor:
         self.pred_history.clear()
 
     def update(self, hands) -> str:
-        """
-        Update the streaming buffer with the latest detected hands and
-        return the smoothed predicted label.
-        """
+
         has_hands = len(hands) > 0
 
         if has_hands:
