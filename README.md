@@ -1,195 +1,126 @@
-# README (Tiếng Việt)
+# ASL-TALK: Real-time Sign Language Recognition
 
-English version: README-en.md
-
-## Giới thiệu
-
-ASL-TALK là một dự án Machine Learning nhằm nhận diện ký hiệu ngôn ngữ ký hiệu (American Sign Language - ASL) từ dữ liệu video webcam theo thời gian thực. Hệ thống sử dụng hand landmarks để biểu diễn chuyển động tay, sau đó huấn luyện một mô hình sequence model để dự đoán ký hiệu tương ứng.
-
-Mục tiêu của dự án là xây dựng một pipeline ML hoàn chỉnh từ thu thập dữ liệu, xử lý dữ liệu, huấn luyện mô hình cho tới suy luận thời gian thực.
-
-Dự án này được xây dựng như một portfolio project nhằm thể hiện khả năng thiết kế pipeline machine learning, tổ chức code và xây dựng hệ thống inference đơn giản.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
 ---
 
-## Tính năng chính
+## 📌 Introduction
 
-Thu thập dữ liệu ký hiệu từ webcam
-Nhập dữ liệu video từ nguồn bên ngoài
-Trích xuất hand landmarks từ video
-Chuẩn hóa và xây dựng dataset huấn luyện
-Huấn luyện mô hình sequence để nhận diện ký hiệu
-Chạy inference thời gian thực từ webcam
-Tổ chức project theo cấu trúc ML pipeline chuẩn
+**ASL-TALK** is a real-time American Sign Language (ASL) recognition system. It leverages hand landmark coordinates to represent gestures and utilizes sequence models to predict signs from live webcam feeds.
+
+The system is primarily trained on an external dataset and supports optional real-time data collection via webcam for extending and personalizing the dataset.
+
+This is a **portfolio project** designed to demonstrate:
+* End-to-end Machine Learning Pipeline design.
+* Professional code organization and modular software engineering.
+* Scalable inference system implementation.
 
 ---
 
-## Cấu trúc project
+## ✨ Key Features
+
+* **Data Engineering**: Integration of external datasets from Kaggle as the primary data source, with optional real-time webcam data collection.
+* **Feature Extraction**: Mediapipe-based hand landmark extraction for efficient processing of both external and custom data.
+* **Preprocessing Pipeline**: Automated workflow converting data from `raw` → `interim` → `processed`.
+* **Model Training**: Robust sequence model training (LSTM/GRU) with checkpoint management.
+* **Real-time Inference**: High-performance gesture prediction via webcam.
+
+---
+
+## 📊 Dataset
+
+This project uses a combination of external data and optional custom data:
+
+### Primary Dataset
+- ASL Citizen Dataset (Kaggle)  
+- Source: https://www.kaggle.com/datasets/abd0kamel/asl-citizen
+
+This dataset serves as the main training source, providing diverse sign language samples for better generalization.
+
+Since the dataset does not include hand landmarks, a custom extraction pipeline (`import_external_videos.py`) is used to process raw videos into structured landmark sequences.
+
+### Optional Data Collection
+- Real-time data can be collected via webcam using the built-in collection module.
+- This allows users to:
+  - Extend the dataset with new signs
+  - Improve performance on specific users
+  - Experiment with custom data distributions
+
+Combining a curated external dataset with real-time collected data helps improve model robustness and flexibility.
+
+---
+
+## 📂 Project Structure
 
 ```
 ASL-TALK
 │
-├─ configs
-│
-├─ data
-│  ├─ raw
-│  ├─ interim
-│  ├─ processed
-│  └─ external
-│
-├─ models
-│  ├─ checkpoints
-│  └─ trained
-│
-├─ src
-│  ├─ data
-│  ├─ models
-│  ├─ pipelines
-│  ├─ utils
-│  └─ __init__.py
-│
-├─ tests
-│
-├─ pyproject.toml
-├─ README.md
-├─ README-en.md   # đây là version README.md tiếng Anh
-├─ LICENSE
-└─ .gitignore
+├─ configs/          
+├─ data/             
+├─ models/           
+├─ src/              
+├─ tests/            
+├─ pyproject.toml    
+└─ README.md
 ```
 
 ---
 
-## Pipeline Machine Learning
+## 🚀 Machine Learning Pipeline
 
-Quy trình xử lý dữ liệu và huấn luyện mô hình bao gồm các bước sau:
+The workflow is strictly organized into automated stages:
 
-1 Thu thập dữ liệu từ webcam
-2 Lưu dữ liệu thô vào thư mục raw
-3 Chuyển dữ liệu raw thành dữ liệu interim
-4 Chuẩn hóa dữ liệu thành dataset processed
-5 Huấn luyện mô hình sequence
-6 Lưu checkpoint mô hình
-7 Chạy inference từ webcam
-
-Luồng pipeline:
-
-```
-data collection
-      ↓
-raw dataset
-      ↓
-dataset preprocessing
-      ↓
-processed dataset
-      ↓
-model training
-      ↓
-model checkpoint
-      ↓
-real-time inference
-```
+1. **Dataset Loading**: Import external data from Kaggle → `data/raw`.
+2. **Optional Collection**: Capture additional data via webcam.
+3. **Preprocessing**: Extract landmarks → `data/interim` → Normalize → `data/processed`.
+4. **Training**: Train sequence model → Save to `models/checkpoints`.
+5. **Inference**: Load trained model → Live webcam prediction.
 
 ---
 
-## Cài đặt môi trường
+## 🛠 Installation
 
-Yêu cầu Python 3.10 trở lên.
+Python 3.10 or higher is required.
 
-Cài đặt dependencies:
-
-```
+```bash
+git clone https://github.com/username/ASL-TALK.git
+cd ASL-TALK
 pip install -e .
 ```
 
 ---
 
-## Xây dựng dataset
+## 📖 Usage Guide
 
-Chạy pipeline xây dựng dataset:
-
+### 1. Data Collection
+```bash
+python -m src.data.collect_raw_data
 ```
+
+### 2. Build Dataset
+```bash
 python -m pipelines.run_dataset
 ```
 
-Pipeline này sẽ thực hiện:
-
-- raw_to_interim.py
-- interim_to_processed
-
-Sau khi chạy xong, dataset huấn luyện sẽ được tạo trong thư mục:
-
-```
-data/processed
-```
-
----
-
-## Huấn luyện mô hình
-
-Chạy pipeline training:
-
-```
+### 3. Model Training
+```bash
 python -m pipelines.run_training
 ```
 
-Sau khi huấn luyện hoàn tất, checkpoint mô hình sẽ được lưu tại:
-
-```
-models/checkpoints
-```
-
----
-
-## Chạy inference
-
-Chạy inference từ webcam:
-
-```
+### 4. Run Inference
+```bash
 python -m src.tests.test_infer_webcam
 ```
 
-Hệ thống sẽ:
+---
 
-1 Mở webcam
-2 Phát hiện bàn tay
-3 Trích xuất landmarks
-4 Dự đoán ký hiệu bằng mô hình đã huấn luyện
+## ⚙️ Configuration
+
+All system parameters are managed via YAML files in the `configs/` directory.
 
 ---
 
-## Cấu hình
+## 📝 License
 
-Các tham số của hệ thống được quản lý thông qua các file YAML trong thư mục:
-
-```
-configs
-```
-
-Ví dụ:
-
-```
-data.yaml
-model.yaml
-train.yaml
-utils.yaml
-```
-
-Các file này cho phép điều chỉnh cấu hình mà không cần sửa code.
-
----
-
-## Mục tiêu học tập
-
-Dự án này nhằm thể hiện khả năng:
-
-thiết kế ML pipeline
-xây dựng dataset pipeline
-huấn luyện mô hình sequence
-tổ chức code theo cấu trúc ML project chuẩn
-xây dựng inference pipeline đơn giản
-
----
-
-## License
-
-Dự án được phát hành dưới giấy phép MIT.
+This project is licensed under the MIT License.
