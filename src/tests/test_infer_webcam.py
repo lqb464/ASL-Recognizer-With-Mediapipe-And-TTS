@@ -91,7 +91,7 @@ def main() -> None:
     pred_label = ""
 
     print("Live ASL inference started")
-    print("Press q to quit")
+    print("Press ESC to quit")
 
     try:
         while True:
@@ -163,7 +163,7 @@ def main() -> None:
             cv2.imshow("ASL Live Inference", vis_frame)
 
             key = cv2.waitKey(1) & 0xFF
-            if key == ord("q") or key == ord("Q"):
+            if key == 27:
                 break
 
     finally:

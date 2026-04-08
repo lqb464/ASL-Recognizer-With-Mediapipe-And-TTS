@@ -152,7 +152,6 @@ def ask_label(preview_frame, num_frames: int | None, window_name="Hand Detection
         help_lines = [
             "Enter: luu sample (de trong = SILENCE)",
             "skip: bo qua sample nay",
-            "quit: dung chuong trinh",
             "ESC: quit    |    Backspace: xoa ky tu",
         ]
 
@@ -218,7 +217,7 @@ def ask_label(preview_frame, num_frames: int | None, window_name="Hand Detection
             return value
 
         if key == 27:
-            return "quit"
+            return 27
 
         if key in (8, 127):
             typed = typed[:-1]

@@ -133,9 +133,9 @@ def main():
                         preview_frame=preview_frame,
                         num_frames=len(sequence),
                         window_name=WINDOW_NAME,
-                    ).strip()
+                    )
 
-                    if user_input.lower() == "quit":
+                    if user_input == 27:
                         print("Quit by label dialog.")
                         should_quit = True
 
@@ -229,7 +229,7 @@ def main():
             cv2.imshow(WINDOW_NAME, frame)
 
             key = cv2.waitKey(1) & 0xFF
-            if key == ord("q"):
+            if key == 27:
                 print("Quit by keyboard.")
                 break
 

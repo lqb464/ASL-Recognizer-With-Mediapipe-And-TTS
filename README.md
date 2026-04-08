@@ -113,8 +113,8 @@ python -m pipelines.run_dataset
 
 Pipeline này sẽ thực hiện:
 
-raw_to_interim
-interim_to_processed
+- raw_to_interim.py
+- interim_to_processed
 
 Sau khi chạy xong, dataset huấn luyện sẽ được tạo trong thư mục:
 
@@ -145,7 +145,7 @@ models/checkpoints
 Chạy inference từ webcam:
 
 ```
-python -m src.inference.infer_webcam
+python -m src.tests.test_infer_webcam
 ```
 
 Hệ thống sẽ:
@@ -175,22 +175,6 @@ utils.yaml
 ```
 
 Các file này cho phép điều chỉnh cấu hình mà không cần sửa code.
-
----
-
-## Kết quả
-
-Kết quả huấn luyện và inference được lưu tại:
-
-```
-artifacts
-```
-
-Bao gồm:
-
-metrics
-predictions
-figures
 
 ---
 

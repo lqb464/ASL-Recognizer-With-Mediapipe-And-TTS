@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple
 
+import numpy as np
 import cv2
 import yaml
 
@@ -107,8 +108,8 @@ def load_labels_map(path: Optional[Path]) -> Dict[str, str]:
     if not path.exists():
         raise FileNotFoundError(f"labels-json not found: {path}")
 
-    with path.open("r", encoding="utf-8") as f:
-        obj = json.load(f)
+    with path.open("r", encoding="utf-8") as file:
+        obj = json.load(file)
 
     if not isinstance(obj, dict):
         raise ValueError("--labels-json must be a JSON object mapping path->label")
@@ -155,7 +156,7 @@ def resolve_label(
 
 def iter_sampled_frames(
     cap: cv2.VideoCapture, record_fps: float, max_seconds: float
-) -> Iterable[Tuple[int, float, "cv2.MatLike"]]:
+) -> Iterable[Tuple[int, float, np.ndarray]]:
 
     src_fps = cap.get(cv2.CAP_PROP_FPS)
     if not src_fps or src_fps <= 1e-6:
