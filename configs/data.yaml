@@ -1,5 +1,5 @@
 data:
-  external_data_dir: "data/external"
+  external_data_dir: "/kaggle/input/datasets/abd0kamel/asl-citizen/ASL_Citizen"
   raw_data_dir: "data/raw"
   interim_data_dir: "data/interim"
   processed_data_dir: "data/processed"
@@ -19,7 +19,6 @@ record:
 import:
   video_glob: "*.mp4"
   default_num_hands: 2
-  default_model_path: "models/trained/hand_landmarker.task"
   default_max_seconds: 0.0
 
 processing:

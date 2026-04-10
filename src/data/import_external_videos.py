@@ -1,293 +1,197 @@
-from __future__ import annotations
-
 import argparse
 import json
 import time
+import pandas as pd
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple
-
-import numpy as np
+from typing import List, Dict, Any, Set
 import cv2
 import yaml
+import sys
+import os
+import contextlib
 
-from src.data.label_data import RAW_DIR, MANIFEST_PATH, save_raw_labeled_sample
+# 1. Tắt log ở mức hệ thống (TensorFlow & MediaPipe C++)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['GLOG_minloglevel'] = '2'
+os.environ['ABSL_LOGGING_MIN_LOG_LEVEL'] = '3'
 
-if TYPE_CHECKING:
-    from src.utils.hand_detector import HandDetector
+# Import các công cụ chuẩn từ project
+from src.utils.hand_detector import HandDetector
 
-
+# Load cấu hình
 with open("configs/data.yaml", encoding="utf-8") as f:
-    cfg = yaml.safe_load(f)
+    cfg_data = yaml.safe_load(f)
 
-DATA_CFG = cfg["data"]
-RECORD_CFG = cfg["record"]
-IMPORT_CFG = cfg["import"]
+DATA_CFG = cfg_data["data"]
+RECORD_CFG = cfg_data["record"]
+RAW_DIR = Path(DATA_CFG["raw_data_dir"])
 
-
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description=(
-            "Import external videos -> run MediaPipe -> save raw samples into data/raw as JSON.\n"
-            "This produces the same raw format as webcam collection, so you can reuse raw_to_interim.py."
-        )
-    )
-
-    p.add_argument(
-        "--input",
-        type=Path,
-        default=Path(DATA_CFG["external_data_dir"]),
-    )
-
-    p.add_argument(
-        "--glob",
-        type=str,
-        default=IMPORT_CFG["video_glob"],
-    )
-
-    p.add_argument(
-        "--label",
-        type=str,
-        default=None,
-    )
-
-    p.add_argument(
-        "--label-from-parent",
-        action="store_true",
-    )
-
-    p.add_argument(
-        "--labels-json",
-        type=Path,
-        default=None,
-    )
-
-    p.add_argument(
-        "--record-fps",
-        type=float,
-        default=float(RECORD_CFG["record_fps"]),
-    )
-
-    p.add_argument(
-        "--max-seconds",
-        type=float,
-        default=float(IMPORT_CFG["default_max_seconds"]),
-    )
-
-    p.add_argument(
-        "--num-hands",
-        type=int,
-        default=int(IMPORT_CFG["default_num_hands"]),
-        choices=[1, 2],
-    )
-
-    p.add_argument(
-        "--model-path",
-        type=str,
-        default=IMPORT_CFG["default_model_path"],
-    )
-
-    p.add_argument(
-        "--dry-run",
-        action="store_true",
-    )
-
-    return p.parse_args()
+with open("configs/utils.yaml", encoding="utf-8") as f:
+    cfg_utils = yaml.safe_load(f)
 
 
-def discover_videos(input_path: Path, glob_pat: str) -> List[Path]:
-    if input_path.is_file():
-        return [input_path]
-    if not input_path.exists():
-        return []
-    return sorted([p for p in input_path.rglob(glob_pat) if p.is_file()])
-
-
-def load_labels_map(path: Optional[Path]) -> Dict[str, str]:
-    if path is None:
-        return {}
-    if not path.exists():
-        raise FileNotFoundError(f"labels-json not found: {path}")
-
-    with path.open("r", encoding="utf-8") as file:
-        obj = json.load(file)
-
-    if not isinstance(obj, dict):
-        raise ValueError("--labels-json must be a JSON object mapping path->label")
-
-    out: Dict[str, str] = {}
-    for k, v in obj.items():
-        out[str(k)] = str(v)
-    return out
-
-
-def resolve_label(
-    video_path: Path,
-    input_root: Path,
-    fixed_label: Optional[str],
-    label_from_parent: bool,
-    labels_map: Dict[str, str],
-) -> str:
-    if fixed_label:
-        return fixed_label
-
-    rel = None
-    if input_root.exists() and input_root.is_dir():
+def load_video_labels(splits_dir: Path) -> Dict[str, str]:
+    """Đọc các file CSV trong splits/ để lấy nhãn (Gloss) của từng video."""
+    video_to_label = {}
+    csv_files = list(splits_dir.glob("*.csv"))
+    
+    for csv_path in csv_files:
+        print(f"  [>] Đang nạp metadata từ: {csv_path.name}")
         try:
-            rel = str(video_path.relative_to(input_root).as_posix())
-        except ValueError:
-            rel = None
+            df = pd.read_csv(csv_path)
+            # Map 'Video file' -> 'Gloss'
+            for _, row in df.iterrows():
+                v_file = row['Video file']
+                gloss = row['Gloss']
+                video_to_label[v_file] = str(gloss).upper()
+        except Exception as e:
+            print(f"  [!] Lỗi khi đọc file {csv_path.name}: {e}")
+            
+    return video_to_label
 
-    key_candidates = []
-    if rel:
-        key_candidates.append(rel)
-    key_candidates.append(video_path.name)
+def get_processed_videos(raw_dir: Path) -> Set[str]:
+    processed_stems = set()
+    jsonl_files = sorted(raw_dir.glob("session_*.jsonl"))
 
-    for key in key_candidates:
-        if key in labels_map:
-            return str(labels_map[key])
+    if not jsonl_files:
+        return processed_stems
 
-    if label_from_parent:
-        return video_path.parent.name
+    print(f"  [>] Đang quét {len(jsonl_files)} file session cũ trong {raw_dir}...")
 
-    raise ValueError(
-        "Cannot resolve label. Provide --label, or --label-from-parent, or --labels-json."
-    )
+    for jsonl_path in jsonl_files:
+        try:
+            with open(jsonl_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        sample = json.loads(line)
+                        parts = sample["sample_id"].split("_")
+                        if len(parts) >= 3:
+                            video_stem = "_".join(parts[2:])
+                            processed_stems.add(video_stem)
+        except Exception as e:
+            print(f"  [!] Lỗi khi quét file {jsonl_path.name}: {e}")
 
+    return processed_stems
 
-def iter_sampled_frames(
-    cap: cv2.VideoCapture, record_fps: float, max_seconds: float
-) -> Iterable[Tuple[int, float, np.ndarray]]:
+def process_video(video_path: Path, detector: HandDetector, record_fps: float) -> List[List[Dict]]:
+    """Trích xuất landmarks thô từ từng frame của video."""
+    cap = cv2.VideoCapture(str(video_path))
+    sequence_data = []
+    frame_duration_ms = 1000.0 / record_fps
+    frame_count = 0
 
-    src_fps = cap.get(cv2.CAP_PROP_FPS)
-    if not src_fps or src_fps <= 1e-6:
-        src_fps = 30.0
-
-    stride = max(int(round(src_fps / max(record_fps, 1e-6))), 1)
-
-    max_frames = 0
-    if max_seconds and max_seconds > 0:
-        max_frames = int(max_seconds * record_fps)
-
-    frame_idx = 0
-    kept = 0
-
-    while True:
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            break
-
-        if frame_idx % stride == 0:
-            ts_s = kept / max(record_fps, 1e-6)
-            yield kept, ts_s, frame
-
-            kept += 1
-            if max_frames and kept >= max_frames:
+    with suppress_native_stderr():
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
                 break
 
-        frame_idx += 1
-
-
-def process_video(
-    video_path: Path,
-    label: str,
-    detector: HandDetector,
-    record_fps: float,
-    max_seconds: float,
-) -> List[List[Dict]]:
-
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        raise RuntimeError(f"Cannot open video: {video_path}")
-
-    try:
-        sequence: List[List[Dict]] = []
-
-        base_ms = int(time.time() * 1000)
-
-        for kept_idx, ts_s, frame in iter_sampled_frames(cap, record_fps, max_seconds):
-            timestamp_ms = base_ms + int(ts_s * 1000.0)
-
-            result = detector.detect(frame, timestamp_ms=timestamp_ms)
-            hands = detector.get_hands_data(result, frame.shape)
-
-            sequence.append(hands)
-
-        if len(sequence) == 0:
-            raise RuntimeError(f"No frames sampled from: {video_path}")
-
-        return sequence
-
-    finally:
-        cap.release()
-
-
-def main() -> None:
-
-    args = parse_args()
-
-    videos = discover_videos(args.input, args.glob)
-
-    if not videos:
-        raise FileNotFoundError(f"No videos found in: {args.input} (glob={args.glob})")
-
-    labels_map = load_labels_map(args.labels_json)
-
-    from src.utils.hand_detector import HandDetector
-
-    detector = HandDetector(model_path=args.model_path, num_hands=args.num_hands)
-
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
-    MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    imported = 0
-    skipped = 0
-
-    try:
-
-        for vp in videos:
+            custom_timestamp_ms = int(frame_count * frame_duration_ms)
 
             try:
+                result = detector.detect(frame, timestamp_ms=custom_timestamp_ms)
+                hands = detector.get_hands_data(result, frame.shape)
+                sequence_data.append(hands)
+            except Exception as e:
+                print(f"[frame {frame_count}] detect lỗi: {e}")
+                sequence_data.append([])
 
-                label = resolve_label(
-                    video_path=vp,
-                    input_root=args.input,
-                    fixed_label=args.label,
-                    label_from_parent=args.label_from_parent,
-                    labels_map=labels_map,
-                )
+            frame_count += 1
 
-                print(f"[IMPORT] {vp} -> label='{label}'")
+    cap.release()
+    return sequence_data
 
-                if args.dry_run:
-                    skipped += 1
+def main(override_args=None):
+    parser = argparse.ArgumentParser()
+    # Đường dẫn lấy từ data.yaml và
+    base_data_path = Path(DATA_CFG["external_data_dir"]) 
+    parser.add_argument("--videos-dir", type=Path, default=base_data_path / "videos")
+    parser.add_argument("--splits-dir", type=Path, default=base_data_path / "splits")
+    parser.add_argument("--model-path", type=str, default=cfg_utils["hand_detector"]["model_path"])
+    
+    args = parser.parse_args(override_args)
+
+    # 1. Nạp từ điển nhãn
+    video_labels = load_video_labels(args.splits_dir)
+
+    all_video_files = sorted([
+        f for f in args.videos_dir.glob("*") 
+        if f.suffix.lower() in [".mp4", ".avi", ".mov", ".mkv"]
+    ])
+    
+    if not all_video_files:
+        print(f"  [!] Không tìm thấy video nào tại {args.videos_dir}")
+        return
+
+    session_id = int(time.time() * 1000)
+    output_path = RAW_DIR / f"session_{session_id}.jsonl"
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+
+    processed_stems = get_processed_videos(RAW_DIR)
+    video_files_to_process = [v for v in all_video_files if v.stem not in processed_stems]
+
+    print(f"  [>] Tổng cộng: {len(all_video_files)} video.")
+    print(f"  [✓] Đã hoàn thành trước đó: {len(processed_stems)} video.")
+    print(f"  [⚡] Cần xử lý tiếp: {len(video_files_to_process)} video.")
+
+    if not video_files_to_process:
+        print("  [🎉] Đã hoàn thành toàn bộ dataset!")
+        return
+
+    imported_count = 0
+    fps = float(RECORD_CFG["record_fps"])
+
+    # 5. Vòng lặp xử lý (Chế độ "a" - Append)
+    with open(output_path, "a", encoding="utf-8") as f_out:
+        for vp in video_files_to_process:
+            label = video_labels.get(vp.name)
+            if not label:
+                # Nếu CSV không có, có thể dự phòng bằng cách tách tên file (như 66221-CARRY.mp4)
+                if "-" in vp.stem:
+                    label = vp.stem.split("-")[-1].upper()
+                else:
+                    print(f"    [?] Bỏ qua {vp.name}: Không xác định được nhãn.")
                     continue
 
-                seq = process_video(
-                    video_path=vp,
-                    label=label,
-                    detector=detector,
-                    record_fps=float(args.record_fps),
-                    max_seconds=float(args.max_seconds),
-                )
+            detector = None
+            try:
+                with suppress_native_stderr():
+                    detector = HandDetector(model_path=args.model_path)
 
-                out_path = save_raw_labeled_sample(data=seq, label=label)
+                sequence = process_video(vp, detector, fps)
 
-                imported += 1
+                if sequence:
+                    sample = {
+                        "sample_id": f"ext_{int(time.time()*1000)}_{vp.stem}",
+                        "label": label,
+                        "data": sequence
+                    }
+                    f_out.write(json.dumps(sample, ensure_ascii=False) + "\n")
+                    f_out.flush()
 
-                print(f"  saved: {out_path} (frames={len(seq)})")
+                    imported_count += 1
+                    if imported_count % 10 == 0 or imported_count == 1:
+                        print(f"    [PROGRESS] Đã xong {len(processed_stems) + imported_count}/{len(all_video_files)}...")
+            except Exception as e:
+                print(f"    [!] Lỗi khi xử lý {vp.name}: {e}")
+            finally:
+                if detector is not None:
+                    try:
+                        with suppress_native_stderr():
+                            detector.close()
+                    except Exception:
+                        pass
 
-            except Exception as exc:
+    print(f"\n[XONG] Đã xử lý thêm {imported_count} mẫu mới.")
 
-                skipped += 1
-
-                print(f"[SKIP] {vp}: {exc}")
-
+@contextlib.contextmanager
+def suppress_native_stderr():
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    old_stderr_fd = os.dup(2)
+    try:
+        os.dup2(devnull_fd, 2)
+        yield
     finally:
-
-        detector.close()
-
-    print(f"Done. imported={imported} skipped={skipped} raw_dir={RAW_DIR}")
-
-
-if __name__ == "__main__":
-    main()
+        os.dup2(old_stderr_fd, 2)
+        os.close(old_stderr_fd)
+        os.close(devnull_fd)

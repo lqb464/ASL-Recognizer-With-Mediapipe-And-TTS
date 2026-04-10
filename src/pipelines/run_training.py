@@ -1,13 +1,6 @@
-from ..models.train import main as train_model
-
+from src.models.train import train
 
 def run():
-    print("Starting training pipeline...")
-
-    train_model()
-
-    print("Training finished.")
-
-
-if __name__ == "__main__":
-    run()
+    print("--- Starting Training Pipeline ---")
+    train()
+    print("--- Training Finished ---")

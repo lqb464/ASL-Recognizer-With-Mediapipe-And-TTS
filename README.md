@@ -7,120 +7,118 @@
 
 ## 📌 Introduction
 
-**ASL-TALK** is a real-time American Sign Language (ASL) recognition system. It leverages hand landmark coordinates to represent gestures and utilizes sequence models to predict signs from live webcam feeds.
+**ASL-TALK** is a professional-grade real-time American Sign Language (ASL) recognition system. It leverages MediaPipe for hand landmark extraction and utilizes Deep Learning sequence models (LSTM/GRU) to predict gestures from live webcam feeds.
 
-The system is primarily trained on an external dataset and supports optional real-time data collection via webcam for extending and personalizing the dataset.
-
-This is a **portfolio project** designed to demonstrate:
-* End-to-end Machine Learning Pipeline design.
-* Professional code organization and modular software engineering.
-* Scalable inference system implementation.
+This project serves as a **portfolio piece** demonstrating:
+* **End-to-end ML Pipeline**: From raw video ingestion to real-time deployment.
+* **Modular Engineering**: Clean, scalable code architecture using YAML configurations.
+* **Production Features**: Integrated Text-to-Speech (TTS) and multi-threaded inference.
 
 ---
 
-## ✨ Key Features
+## ✨ Key Tech Stack
 
-* **Data Engineering**: Integration of external datasets from Kaggle as the primary data source, with optional real-time webcam data collection.
-* **Feature Extraction**: Mediapipe-based hand landmark extraction for efficient processing of both external and custom data.
-* **Preprocessing Pipeline**: Automated workflow converting data from `raw` → `interim` → `processed`.
-* **Model Training**: Robust sequence model training (LSTM/GRU) with checkpoint management.
-* **Real-time Inference**: High-performance gesture prediction via webcam.
-
----
-
-## 📊 Dataset
-
-This project uses a combination of external data and optional custom data:
-
-### Primary Dataset
-- ASL Citizen Dataset (Kaggle)  
-- Source: https://www.kaggle.com/datasets/abd0kamel/asl-citizen
-
-This dataset serves as the main training source, providing diverse sign language samples for better generalization.
-
-Since the dataset does not include hand landmarks, a custom extraction pipeline (`import_external_videos.py`) is used to process raw videos into structured landmark sequences.
-
-### Optional Data Collection
-- Real-time data can be collected via webcam using the built-in collection module.
-- This allows users to:
-  - Extend the dataset with new signs
-  - Improve performance on specific users
-  - Experiment with custom data distributions
-
-Combining a curated external dataset with real-time collected data helps improve model robustness and flexibility.
-
----
-
-## 📂 Project Structure
-
-```
-ASL-TALK
-│
-├─ configs/          
-├─ data/             
-├─ models/           
-├─ src/              
-├─ tests/            
-├─ pyproject.toml    
-└─ README.md
-```
+* **Core**: Python 3.10+
+* **Deep Learning**: PyTorch (Sequence Modeling)
+* **Computer Vision**: MediaPipe, OpenCV
+* **Data Engineering**: NumPy, YAML, JSONL
+* **UI/UX**: Pyttsx3 (Text-to-Speech), Custom OpenCV Overlays
 
 ---
 
 ## 🚀 Machine Learning Pipeline
 
-The workflow is strictly organized into automated stages:
+The workflow is organized into automated, modular stages:
 
-1. **Dataset Loading**: Import external data from Kaggle → `data/raw`.
-2. **Optional Collection**: Capture additional data via webcam.
-3. **Preprocessing**: Extract landmarks → `data/interim` → Normalize → `data/processed`.
-4. **Training**: Train sequence model → Save to `models/checkpoints`.
-5. **Inference**: Load trained model → Live webcam prediction.
+```mermaid
+graph LR
+    A[External Videos] --> B(Landmark Extraction)
+    C[Webcam Capture] --> B
+    B --> D{Data/Raw}
+    D --> E(Normalization)
+    E --> F{Data/Processed}
+    F --> G(GRU/LSTM Training)
+    G --> H[Live Inference + TTS]
+```
+
+1. **Ingestion**: Supports ASL Citizen Dataset ([Kaggle](https://www.kaggle.com/datasets/abd0kamel/asl-citizen/code) ) and custom webcam recordings.
+2. **Feature Engineering**: RGB Video → 21 Hand Landmarks → Normalized Coordinates.
+3. **Preprocessing**: Automated `raw` → `interim` → `processed` (NPZ format) workflow.
+4. **Training**: Sequence model training with performance tracking and checkpointing.
+5. **Deployment**: Real-time inference with motion-aware state resetting.
+
+---
+
+## 📂 Project Structure
+
+```text
+ASL-TALK
+│
+├─ configs/          # YAML configs for Model, Train, and Inference
+├─ data/             # Versioned data (raw, interim, processed)
+├─ models/           # Trained .pt checkpoints and hand_landmarker.task
+├─ src/              
+│  ├─ data/          # Scripts for collection and preprocessing
+│  ├─ models/        # RNN architectures and training logic
+│  └─ utils/         # Webcam, Hand Detector, Overlay, and TTS helpers
+├─ pyproject.toml    # Dependencies and metadata
+└─ README.md
+```
 
 ---
 
 ## 🛠 Installation
 
-Python 3.10 or higher is required.
-
 ```bash
-git clone https://github.com/username/ASL-TALK.git
-cd ASL-TALK
-pip install -e .
+# Clone the repository
+git clone https://github.com/lqb464/ASL-Recognizer-With-Mediapipe-And-TTS.git
+cd ASL-Recognizer-With-Mediapipe-And-TTS
+
+# Install in editable mode
+pip install -r requirements.txt
 ```
 
 ---
 
 ## 📖 Usage Guide
 
-### 1. Data Collection
+### 1. Data Collection & Preprocessing
+You can choose to collect your own data or import external datasets:
+
+* **Capture via Webcam**:
+    ```bash
+    python -m src.data.collect_raw_data
+    ```
+* **Build Dataset (Preprocessing)**:
+    ```bash
+    # Process all available sources (Default)
+    python -m src.pipelines.run_dataset --source all
+    ```
+
+### 2. Model Training
+Configure your hyperparameters in `configs/train.yaml` and run:
 ```bash
-python -m src.data.collect_raw_data
+python -m src.models.run_training
 ```
 
-### 2. Build Dataset
+### 3. Real-time Inference
+Launch the live recognition system with audio feedback:
 ```bash
-python -m pipelines.run_dataset
-```
-
-### 3. Model Training
-```bash
-python -m pipelines.run_training
-```
-
-### 4. Run Inference
-```bash
-python -m src.tests.test_infer_webcam
+python -m src.models.test_infer_webcam
 ```
 
 ---
 
 ## ⚙️ Configuration
 
-All system parameters are managed via YAML files in the `configs/` directory.
+All system behaviors are controlled through YAML files in the `configs/` directory:
+* `data.yaml`: Path management and recording parameters.
+* `model.yaml`: RNN architecture (GRU/LSTM, layers, hidden dims).
+* `train.yaml`: Batch size, learning rate, and epochs.
+* `inference.yaml`: Prediction smoothing and motion thresholds.
 
 ---
 
 ## 📝 License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the LICENSE file for details.

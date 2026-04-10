@@ -1,4 +1,3 @@
-# src/utils/webcam.py
 import cv2
 import yaml
 
